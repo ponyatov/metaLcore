@@ -23,11 +23,6 @@ PY      = $(shell which python3)
 PIP     = $(shell which pip3)
 PEP     = $(PYPATH)/autopep8
 PYT     = $(PYPATH)/pytest
-
-PY      = $(BIN)/python3
-PIP     = $(BIN)/pip3
-PYT     = $(BIN)/pytest
-PEP     = $(BIN)/autopep8
 # / tool
 
 # \ src
@@ -63,16 +58,10 @@ install: $(OS)_install doc $(PIP)
 	$(MAKE) update
 update: $(OS)_update
 	$(PIP) install --user -U pytest autopep8
-	$(PIP) install -U pytest autopep8
-	$(PIP) install -U -r requirements.txt
 
 Linux_install Linux_update:
 	sudo apt update
 	sudo apt install -u `cat apt.txt apt.dev`
-
-$(PY) $(PIP) $(PYT) $(PEP):
-	python3 -m venv .
-	$(MAKE) update
 # / install
 
 # \ merge

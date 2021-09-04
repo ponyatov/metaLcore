@@ -765,8 +765,8 @@ class metaL(Python):
         super().mk(p)
         p.mk.meta[0].value += ' meta'
 
-    def giti(self,p):
-        p.lib.giti.ins(0,'python*/')
+    def giti(self, p):
+        p.lib.giti.ins(0, 'python*/')
 
 class htmlFile(File):
     def __init__(self, V, ext='.html'):
