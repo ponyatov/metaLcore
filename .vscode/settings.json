@@ -1,0 +1,37 @@
+{
+    "multiCommand.commands": [
+        {
+            "command": "multiCommand.f11",
+            "sequence": [
+                "workbench.action.files.saveAll",
+                {"command": "workbench.action.terminal.sendSequence",
+                    "args": {"text": "\u000D clear ; make rust \u000D"}}
+            ]
+        },
+        {
+            "command": "multiCommand.f12",
+            "sequence": [
+                "workbench.action.files.saveAll",
+                {"command": "workbench.action.terminal.sendSequence",
+                    "args": {"text": "\u000D clear ; make meta \u000D"}}
+            ]
+        },
+    ],
+
+    // \ files
+    "files.exclude": {
+        "**/metaLgen/**":true, "**/docs/**":true,
+        "**/__pycache__/**":true,
+    },
+    "files.watcherExclude": {
+    },
+    "files.associations": {
+    },
+    // / files
+
+    // \ editor
+    "editor.tabSize": 4,
+    "editor.rulers": [80],
+    "workbench.tree.indent": 32,
+    // / editor
+}
