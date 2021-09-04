@@ -1,8 +1,12 @@
 from metaL import *
 
-p = Project() | metaL()
-p.TITLE = 'generative metaprogramming interpreter'
-p.ABOUT = '''
+p = Project(
+    title='generative metaprogramming interpreter',
+    about='''
 * homoiconic language targets automated code synthesis
-'''
+* compiles to high-level languages
+* easy integration with any existing infrastructure
+''') \
+    | metaL()
+
 p.sync()

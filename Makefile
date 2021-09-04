@@ -41,7 +41,7 @@ meta: $(PY) $(MODULE).py
 
 test:
 
-format: tmp/format_py $(Y)
+format: tmp/format_py
 tmp/format_py: $(Y)
 	$(PEP) --ignore=E26,E302,E305,E401,E402,E701,E702 --in-place $?
 	touch $@
@@ -54,7 +54,7 @@ doc:
 # / doc
 
 # \ install
-install: $(OS)_install doc $(PIP)
+install: $(OS)_install doc
 	$(MAKE) update
 update: $(OS)_update
 	$(PIP) install --user -U pytest autopep8

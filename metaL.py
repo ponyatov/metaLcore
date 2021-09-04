@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 ## @file
-## @brief generative metaprogramming interpreter (homoiconic language)
+## @brief generative metaprogramming interpreter
 
-import os, sys, re
+import os, sys, re, time
+import datetime as dt
 
 ## @defgroup core
 
@@ -29,13 +30,15 @@ class Object:
         if isinstance(that, str): return S(that)
         raise TypeError(['box', type(that), that])
 
-    ## @name test dump & serialization
+    ## @name text dump & serialization
 
     ## pytest callback
-    def __test__(self): return self.dump(test=True)
+    def test(self):
+        return self.dump(test=True)
 
     ## `print` callback
-    def __repr__(self): return self.dump(test=False)
+    def __repr__(self):
+        return self.dump(test=False)
 
     ## full text tree dump
     def dump(self, cycle=[], depth=0, prefix='', test=False):
@@ -60,8 +63,11 @@ class Object:
         gid = '' if test else f' @{self.gid:x}'
         return f'{prefix}<{self.tag()}:{self.val()}>{gid}'
 
-    def tag(self): return self.__class__.__name__.lower()
-    def val(self): return f'{self.value}'
+    def tag(self):
+        return self.__class__.__name__.lower()
+
+    def val(self):
+        return f'{self.value}'
 
     def __format__(self, spec=''):
         if not spec: return f'{self.value}'
@@ -71,10 +77,12 @@ class Object:
     ## @name operator
 
     ## get slot names in order
-    def keys(self): return sorted(self.slot.keys())
+    def keys(self):
+        return sorted(self.slot.keys())
 
     ## iterate over subtree
-    def __iter__(self): return iter(self.nest)
+    def __iter__(self):
+        return iter(self.nest)
 
     ## `A[key]` get from slot
     def __getitem__(self, key):
@@ -87,6 +95,16 @@ class Object:
         that = self.box(that)
         if isinstance(key, str): self.slot[key] = that; return self
         raise TypeError(['__setitem__', type(key), key])
+
+    ## `A << B ~> A[B.type] = B`
+    def __lshift__(self, that):
+        that = self.box(that)
+        return self.__setitem__(that.tag(), that)
+
+    ## `A >> B ~> A[B.value] = B`
+    def __rshift__(self, that):
+        that = self.box(that)
+        return self.__setitem__(that.val(), that)
 
     ## `A // B ~> A.push(B)` push as stack
     def __floordiv__(self, that):
@@ -105,13 +123,13 @@ class Object:
         ret = []
         for i in self.nest:
             if i != that: ret.append(i)
-        self.nest = ret
-        return self
+        self.nest = ret; return self
 
     ## @name stack ops
 
     ## `( ... -- )` clean stack
-    def dropall(self): self.nest = []; return self
+    def dropall(self):
+        self.nest = []; return self
 
     ## @name functional evaluation
 
@@ -127,9 +145,12 @@ class Object:
 
 ## @ingroup primitive
 class Primitive(Object):
-    def __init__(self, V=None): super().__init__(V)
+    def __init__(self, V=None):
+        super().__init__(V)
     ## most primitives evaluates into itself
-    def eval(self, env): return self
+
+    def eval(self, env):
+        return self
 
 ## strings can be nested: source code tree
 class S(Primitive):
@@ -149,6 +170,9 @@ class S(Primitive):
             ret += i.gen(to, depth + 1)
         if self.end is not None:
             ret += f'{to.tab*depth}{self.end}\n'
+        if self.sfx is not None:
+            if self.sfx: ret += f'{to.tab*depth}{self.sfx}\n'
+            else: ret += '\n'
         return ret
 
 ## code section
@@ -219,10 +243,11 @@ class File(IO):
     def __init__(self, V, ext, tab=' ' * 4, comment='#'):
         super().__init__(V + ext)
         self.tab = tab; self.comment = comment
-        self.bot = Sec()
+        self.top = Sec(); self.bot = Sec()
 
     def sync(self):
         with open(self.path, 'w') as F:
+            F.write(self.top.gen(self))
             for i in self: F.write(i.gen(self))
             F.write(self.bot.gen(self))
 
@@ -232,28 +257,75 @@ class giti(File):
         super().__init__(V, ext)
         self.bot // '!.gitignore'
 
-## EDS: Executable Data Structure (c)
-class Active(Object): pass
+## @defgroup active
+## @ingroup core
 
+## EDS: Executable Data Structure (c)
+## @ingroup active
+class Active(Object):
+    pass
+
+## Function
+## @ingroup active
 class Fn(Active):
-    def __init__(self, V, args=[], ret=None, pfx=''):
+    def __init__(self, V, args=[], ret=None, pfx=None, sfx=None):
         super().__init__(V)
         self.args = args
         self.ret = ret
-        self.pfx = pfx
+        self.pfx = pfx; self.sfx = sfx
 
     def gen(self, to, depth=0):
-        args = ','.join(self.args)
+        args = ', '.join(self.args)
         rets = ' ' if self.ret is None else f' -> {self.ret} '
-        ret = S(f'fn {self}({args}){rets}{{', f'}}', pfx=self.pfx)
+        #
+        if isinstance(to, rsFile):
+            ret = S(f'fn {self}({args}){rets}{{', f'}}',
+                    pfx=self.pfx, sfx=self.sfx)
+        if isinstance(to, pyFile):
+            ret = S(f'def {self}({args}):',
+                    pfx=self.pfx, sfx=self.sfx)
+        else:
+            raise TypeError(['gen', type(to)])
+        #
         for i in self: ret // i
+        #
         return ret.gen(to, depth)
+
+## Method
+## @ingroup active
+class Meth(Fn):
+    def __init__(self, V, args=[], ret=None, pfx=None, sfx=None):
+        args = ['self'] + args
+        super().__init__(V, args, ret, pfx, sfx)
 
 ## @defgroup meta
 ## @ingroup core
 
 ## @ingroup meta
 class Meta(Object): pass
+
+class Class(Meta):
+    def __init__(self, C, sup=[]):
+        if isinstance(C, Object):
+            super().__init__(C.__name__)
+        elif isinstance(C, str):
+            super().__init__(C)
+        else:
+            raise TypeError(['Class', type(C), C])
+        #
+        self.sup = sup
+
+    def gen(self, to, depth=0):
+        if self.sup:
+            sups = '(%s)' % \
+                ', '.join(
+                    map(lambda i: f'{i.value}',
+                        self.sup))
+        else: sups = ''
+        pas = '' if self.nest else ' pass'
+        ret = S(f'class {self.value}{sups}:{pas}', pfx='')
+        for i in self: ret // i
+        return ret.gen(to, depth)
 
 ## @ingroup meta
 class Module(Meta): pass
@@ -310,9 +382,18 @@ class pyFile(File):
 
 ## software project
 class Project(Module):
-    def __init__(self, V=None):
+    def __init__(self, V=None, title=None, about=None):
         if not V: V = os.getcwd().split('/')[-1]
         super().__init__(V)
+        #
+        self.TITLE = title if title else f'{self}'
+        self.ABOUT = about if about else ''
+        self.AUTHOR = 'Dmitry Ponyatov'
+        self.EMAIL = 'dponyatov@gmail.com'
+        self.YEAR = 2020
+        self.LICENSE = 'All rights reserved'
+        self.GITHUB = 'https://github.com/ponyatov'
+        #
         self.dirs()
         self.apt()
         self.vscode()
@@ -331,25 +412,25 @@ class Project(Module):
 
     def meta(self):
         self.meta = pyFile(f'{self}'); self.d // self.meta
-        self.meta.p = Vector('mod') // self
+        self.meta.p = Vector('mod')# // self
 
     def sync_meta(self):
-        mods = " | ".join(
-            map(lambda i: f'{i.__class__.__name__}()',
-                self.meta.p.nest))
+        p = \
+            'p = Project(\n' +\
+            f"    title='{self.TITLE}',\n" +\
+            f"    about='''{self.ABOUT}''')"
+        mods = " \\\n    | ".join(
+            [p] +
+            list(map(lambda i: f'{i.__class__.__name__}()',
+                     self.meta.p.nest)))
         self.meta \
             // 'from metaL import *' \
             // (Sec(pfx='')
-                // f'p = {mods}'
-                // f"p.TITLE = \'{self.TITLE}\'"
-                // f"p.ABOUT = '''{self.ABOUT}'''"
-                // f'p.sync()'
-                )
+                // f'{mods}'
+                // f'\np.sync()')
 
     def doxy(self):
         self.doxy = File('doxy', '.gen'); self.d // self.doxy
-
-    def sync_doxy(self):
         self.doxy \
             // (Sec()
                 // f'{"PROJECT_NAME":<22} = "{self}"'
@@ -366,20 +447,12 @@ class Project(Module):
 
     def readme(self):
         self.readme = File('README', '.md'); self.d // self.readme
-        self.TITLE = f'{self}'
-        self.ABOUT = ''
-        self.AUTHOR = 'Dmitry Ponyatov'
-        self.EMAIL = 'dponyatov@gmail.com'
-        self.YEAR = 2020
-        self.LICENSE = 'All rights reserved'
-        self.GITHUB = 'https://github.com/ponyatov'
-
-    def sync_readme(self):
-        self.readme.dropall() \
+        self.readme \
             // f'# ![logo](doc/logo.png) `{self}`' \
             // f'## {self.TITLE}' \
             // f'\n(c) {self.AUTHOR} <<{self.EMAIL}>> {self.YEAR} {self.LICENSE}' \
-            // f'\ngithub: {self.GITHUB}/{self}/'
+            // f'\ngithub: {self.GITHUB}/{self}/' \
+            // f'\n{self.ABOUT}'
 
     def __or__(self, that):
         assert isinstance(that, Mod)
@@ -601,9 +674,7 @@ class Project(Module):
         self.tmp.giti = giti(); self.tmp // (self.tmp.giti // '*')
 
     def sync(self):
-        self.sync_readme()
         self.sync_meta()
-        self.sync_doxy()
         self.d.sync()
 
 ## @ingroup file
@@ -718,43 +789,39 @@ class VEnv(Mod):
                    // '/lib64' // '/include/' // '/share/'
                    // 'pyvenv.cfg' // '*.pyc')
 
-
-## @ingroup mods
-class Python(Mod):
-
     def mk(self, p):
         p.mk.tool // (Sec(pfx='')
                       // f'{"PY":<7} = $(BIN)/python3'
                       // f'{"PIP":<7} = $(BIN)/pip3'
                       // f'{"PYT":<7} = $(BIN)/pytest'
-                      // f'{"PEP":<7} = $(BIN)/autopep8'
-                      )
-        p.mk.format.value += ' $(Y)'
-        p.mk.install.value += ' $(PIP)'
-        p.mk.update \
+                      // f'{"PEP":<7} = $(BIN)/autopep8')
+        p.mk.update.py.dropall() \
             // '$(PIP) install -U pytest autopep8' \
             // '$(PIP) install -U -r requirements.txt'
+        p.mk.install.value += ' $(PIP)'
         p.mk.install_ \
             // (S('$(PY) $(PIP) $(PYT) $(PEP):', pfx='')
                 // 'python3 -m venv .'
-                // '$(MAKE) update'
-                )
+                // '$(MAKE) update')
 
+    def settings(self, p):
+        p.settings[0].ins(0, (Sec('py', sfx='')
+                              // '"python.pythonPath"              : "./bin/python3",'
+                              // '"python.formatting.provider"     : "autopep8",'
+                              // '"python.formatting.autopep8Path" : "./bin/autopep8",'
+                              // f'"python.formatting.autopep8Args" : ["{Python.PEP8}"],'
+                              ))
+        #
+        p.exclude.py = (Sec()
+                        // '"**/lib/python**":true, "**/lib64/**":true,'
+                        // '"**/include/**":true, "**/share/**":true,'
+                        // '"**/pyvenv.cfg":true,')
+        p.exclude // p.exclude.py; p.watcher // p.exclude.py
+
+## @ingroup mods
+class Python(Mod):
     PEP8 = '--ignore=E26,E302,E305,E401,E402,E701,E702'
 
-    # def settings(self, p):
-    #     p.settings[0].ins(0, (Sec('py', sfx='')
-    #                           // '"python.pythonPath"              : "./bin/python3",'
-    #                           // '"python.formatting.provider"     : "autopep8",'
-    #                           // '"python.formatting.autopep8Path" : "./bin/autopep8",'
-    #                           // f'"python.formatting.autopep8Args" : ["{Python.PEP8}"],'
-    #                           ))
-    #     #
-    #     p.exclude.py = (Sec()
-    #                     // '"**/lib/python**":true, "**/lib64/**":true,'
-    #                     // '"**/include/**":true, "**/share/**":true,'
-    #                     // '"**/pyvenv.cfg":true,')
-    #     p.exclude // p.exclude.py; p.watcher // p.exclude.py
 
 ## @defgroup circular
 ## @brief `metaL` circulat implementation
@@ -768,6 +835,186 @@ class metaL(Python):
     def giti(self, p):
         p.lib.giti.ins(0, 'python*/')
 
+    def src(self, p):
+        p.m = pyFile('metaL'); p.d // p.m
+        self.imports(p)
+        self.core(p)
+
+    def imports(self, p):
+        p.m.top // '#!/usr/bin/env python3'
+        p.m // (Sec(pfx='')
+                // '## @file'
+                // f'## @brief {p.TITLE}')
+        p.m // (Sec(pfx='')
+                // 'import os, sys, re, time'
+                // 'import datetime as dt')
+
+    def core(self, p):
+        self.object(p)
+        self.primitive(p)
+        self.container(p)
+        self.active(p)
+        self.meta(p)
+        self.io(p)
+        self.net(p)
+        self.web(p)
+
+    def object_init(self):
+        return (Meth('__init__', ['V'], pfx=None, sfx='')
+                // (S("self.type = self.tag()",
+                      pfx='## type/class tag /required for PLY/'))
+                // (S("self.value = V",
+                      pfx='## scalar: object name, string/number value'))
+                // (S("self.slot = {}",
+                      pfx='## associative array = map = env/namespace = attributes'))
+                // (S("self.nest = []",
+                      pfx='## ordered container = vector = stack = AST sub-edges'))
+                // (S("self.gid = id(self)",
+                      pfx='## unical global id')))
+
+    def box(self):
+        return (Meth('box', ['that'], pfx='## Python types wrapper')
+                // "if isinstance(that, Object): return that"
+                // "if isinstance(that, str): return S(that)"
+                // "raise TypeError(['box', type(that), that])")
+
+    def format(self):
+        return (Meth('__format__', ["spec=''"])
+                // "if not spec: return f'{self.value}'"
+                // "if spec == 'l': return f'{self.value.lower()}'"
+                // "raise TypeError(['__format__', spec])")
+
+    def head(self):
+        return (Meth('head', ["prefix=''", 'test=False'],
+                     pfx='## short `<T:V>` header', sfx='')
+                // "gid = '' if test else f' @{self.gid:x}'"
+                // "return f'{prefix}<{self.tag()}:{self.val()}>{gid}'")
+
+    def dump(self):
+        return Meth('dump', ['cycle=[]', 'depth=0', "prefix=''", 'test=False'],
+                    pfx='## full text tree dump', sfx='')
+
+    def object(self, p):
+        p.m.object = Class('Object')
+        p.m // p.m.object
+        p.m.object \
+            // (Sec()
+                // self.object_init()
+                // self.box()
+                )
+        p.m.object \
+            // (Sec() // S('## @name text dump & serialization', pfx='', sfx='')
+                // (Meth('test', [], pfx='## pytest callback', sfx='')
+                    // 'return self.dump(test=True)')
+                // (Meth('__repr__', [], pfx='## `print` callback', sfx='')
+                    // 'return self.dump(test=False)')
+                // self.dump()
+                // self.head()
+                // (Meth('tag', [], sfx='')
+                    // 'return self.__class__.__name__.lower()')
+                // (Meth('val', [], sfx='')
+                    // "return f'{self.value}'")
+                // self.format()
+                )
+        p.m.object \
+            // (Sec() // S('## @name operator', pfx='', sfx='')
+                // (Meth('keys', [], pfx='## get slot names in order', sfx='')
+                    // 'return sorted(self.slot.keys())')
+                // (Meth('__iter__', [], pfx='## iterate over subtree', sfx='')
+                    // 'return iter(self.nest)')
+                // self.getitem()
+                // self.setitem()
+                // self.lshift()
+                // self.rshift()
+                // self.floordiv()
+                // self.ins()
+                // self.remove()
+                )
+        p.m.object \
+            // (Sec()
+                )
+
+    def getitem(self):
+        return (Meth('__getitem__', ['key'],
+                     pfx='## `A[key]` get from slot', sfx='')
+                // "if isinstance(key, str): return self.slot[key]"
+                // "if isinstance(key, int): return self.nest[key]"
+                // "raise TypeError(['__getitem__', type(key), key])")
+
+    def setitem(self):
+        return (Meth('__setitem__', ['key', 'that'],
+                     pfx='## `A[key] = B` set slot', sfx='')
+                // "that = self.box(that)"
+                // "if isinstance(key, str): self.slot[key] = that; return self"
+                // "raise TypeError(['__setitem__', type(key), key])")
+
+    def lshift(self):
+        return (Meth('__lshift__', ['that'],
+                     pfx='## `A << B ~> A[B.type] = B`', sfx='')
+                // "that = self.box(that)"
+                // "return self.__setitem__(that.tag(), that)")
+
+    def rshift(self):
+        return (Meth('__rshift__', ['that'],
+                     pfx='## `A >> B ~> A[B.value] = B`', sfx='')
+                // "that = self.box(that)"
+                // "return self.__setitem__(that.val(), that)")
+
+    def floordiv(self):
+        return (Meth('__floordiv__', ['that'],
+                     pfx='## `A // B ~> A.push(B)` push as stack', sfx='')
+                // "that = self.box(that)"
+                // "self.nest.append(that); return self")
+
+    def ins(self):
+        return (Meth('ins', ['idx', 'that'],
+                     pfx='## insert at index', sfx='')
+                // "assert isinstance(idx, int)"
+                // "that = self.box(that)"
+                // "self.nest.insert(idx, that); return self"
+                )
+
+    def remove(self):
+        return (Meth('remove', ['that'],
+                     pfx='## remove given object', sfx='')
+                // "assert isinstance(that, Object)"
+                // "ret = []"
+                // (S("for i in self.nest:")
+                    // "if i != that: ret.append(i)")
+                // "self.nest = ret; return self"
+                )
+
+    def primitive(self, p):
+        p.m.prim = Class('Primitive', [p.m.object])
+        p.m // p.m.prim
+
+    def container(self, p):
+        p.m.cont = Class('Container', [p.m.object])
+        p.m // p.m.cont
+
+    def active(self, p):
+        p.m.active = Class('Active', [p.m.object])
+        p.m // p.m.active
+
+    def meta(self, p):
+        p.m.meta = Class('Meta', [p.m.object])
+        p.m // p.m.meta
+
+    def io(self, p):
+        p.m.io = Class('IO', [p.m.object])
+        p.m // p.m.io
+
+    def net(self, p):
+        p.m.net = Class('Net', [p.m.io])
+        p.m // p.m.net
+
+    def web(self, p):
+        p.m.web = Class('Web', [p.m.net])
+        p.m // p.m.web
+
+## @defgroup html
+
+## @ingroup html
 class htmlFile(File):
     def __init__(self, V, ext='.html'):
         super().__init__(V, ext)
@@ -776,6 +1023,8 @@ class teraFile(File):
     def __init__(self, V, ext='.html.tera'):
         super().__init__(V, ext)
 
+## block
+## @ingroup html
 class HTML(S):
     def __init__(self, **kw):
         super().__init__(self.tag())
@@ -798,6 +1047,8 @@ class HTML(S):
         ret += f'{to.tab*depth}</{self.value}>\n'
         return ret
 
+## inline
+## @ingroup html
 class HTMLI(HTML):
     def gen(self, to, depth=0, inline=False):
         ret, args = self.gen_head()
