@@ -121,8 +121,28 @@ class Object:
     def remove(self, that):
         assert isinstance(that, Object)
         ret = []
-        for i in self.nest:
+        for i in self:
             if i != that: ret.append(i)
+        self.nest = ret; return self
+
+    ## insert `that` before `where`
+    def before(self, where, that):
+        assert isinstance(where, Object)
+        that = self.box(that)
+        ret = []
+        for i in self:
+            if i == where: ret.append(that)
+            ret.append(i)
+        self.nest = ret; return self
+
+    ## insert `that` after `where`
+    def after(self, where, that):
+        assert isinstance(where, Object)
+        that = self.box(that)
+        ret = []
+        for i in self:
+            ret.append(i)
+            if i == where: ret.append(that)
         self.nest = ret; return self
 
     ## @name stack ops
@@ -130,6 +150,11 @@ class Object:
     ## `( ... -- )` clean stack
     def dropall(self):
         self.nest = []; return self
+
+    ## `( n1 n2 -- n1 )` drop
+    def drop(self, num=1):
+        for i in range(num): self.nest.pop(-1)
+        return self
 
     ## @name functional evaluation
 
@@ -281,7 +306,7 @@ class Fn(Active):
         if isinstance(to, rsFile):
             ret = S(f'fn {self}({args}){rets}{{', f'}}',
                     pfx=self.pfx, sfx=self.sfx)
-        if isinstance(to, pyFile):
+        elif isinstance(to, pyFile):
             ret = S(f'def {self}({args}):',
                     pfx=self.pfx, sfx=self.sfx)
         else:
@@ -297,6 +322,38 @@ class Meth(Fn):
     def __init__(self, V, args=[], ret=None, pfx=None, sfx=None):
         args = ['self'] + args
         super().__init__(V, args, ret, pfx, sfx)
+
+
+## @defgroup net
+## @ingroup io
+
+class Net(IO): pass
+
+class Web(Net):
+    def bootstrap_head(self, p):
+        return (HEAD()
+                // (TITLE() // f'{p}')
+                // META(charset='utf-8')
+                // META(name="viewport", content="width=device-width, initial-scale=1")
+                // LINK(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/bootswatch/5.1.0/darkly/bootstrap.min.css")
+                // LINK(rel="stylesheet", href="/static/css.css")
+                // SCRIPT(src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js")
+                )
+
+    def bootstrap_script(self, p):
+        return (Sec()
+                // SCRIPT(src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.1.0/js/bootstrap.min.js")
+                )
+
+    def static(self, p):
+        p.static = Dir('static')
+        p.d // p.static; p.static // giti()
+        #
+        p.css = File('css', '.css'); p.static // p.css
+        p.css \
+            // '#localtime { position: absolute; top: .5em; right: .5em; }' \
+            // '#logo      { max-height: 64px; }'
+
 
 ## @defgroup meta
 ## @ingroup core
@@ -334,7 +391,6 @@ class Module(Meta): pass
 ## @brief functional Project modificators
 ## @ingroup meta
 
-
 ## Project functional modificator
 ## @ingroup mods
 class Mod(Module):
@@ -342,7 +398,7 @@ class Mod(Module):
         super().__init__(self.tag())
 
     def pipe(self, p):
-        self.dir(p)
+        self.dirs(p)
         self.giti(p)
         self.package(p)
         self.apt(p)
@@ -352,10 +408,14 @@ class Mod(Module):
         self.settings(p)
         self.extensions(p)
         self.meta(p)
-        return p
+        self.reqs(p)
+        return p // self
+
+    def sync(self, p):
+        print(self.head(), p.head())
 
     def apt(self, p): pass
-    def dir(self, p): pass
+    def dirs(self, p): pass
     def giti(self, p): pass
     def package(self, p): pass
     def mk(self, p): pass
@@ -363,6 +423,7 @@ class Mod(Module):
     def tasks(self, p): pass
     def settings(self, p): pass
     def extensions(self, p): pass
+    def reqs(self, p): pass
     def meta(self, p): p.meta.p // self
 
 ## @ingroup file
@@ -411,7 +472,7 @@ class Project(Module):
             // 'python3 python3-venv'
 
     def meta(self):
-        self.meta = pyFile(f'{self}'); self.d // self.meta
+        self.meta = pyFile(f'{self}.metaL'); self.d // self.meta
         self.meta.p = Vector('mod')# // self
 
     def sync_meta(self):
@@ -447,6 +508,8 @@ class Project(Module):
 
     def readme(self):
         self.readme = File('README', '.md'); self.d // self.readme
+        self.readme.bot // HR(
+        ) // f'powered with [metaL]({self.GITHUB}/metaLgen)'
         self.readme \
             // f'# ![logo](doc/logo.png) `{self}`' \
             // f'## {self.TITLE}' \
@@ -488,12 +551,13 @@ class Project(Module):
                            // f'{"PYT":<7} = $(PYPATH)/pytest')
         self.mk // (self.mk.tool // self.mk.tool.py)
         #
-        self.mk // (Sec('src', pfx='')
-                    // 'Y += $(MODULE).py metaL.py'
-                    // 'R += $(shell find src -type f -regex ".+.rs$$")'
-                    // 'S += $(Y) $(R)')
-        self.mk // (Sec('cfg', pfx=''))
-        self.mk // (Sec('package', pfx=''))
+        self.mk.src = (Sec('src', pfx='')
+                       // 'Y += $(MODULE).py $(MODULE).metaL.py metaL.py'
+                       // 'S += $(Y)')
+        self.mk // self.mk.src
+        # // 'R += $(shell find src -type f -regex ".+.rs$$")'
+        self.mk.cfg = (Sec('cfg', pfx='')); self.mk // self.mk.cfg
+        self.mk.package = (Sec('package', pfx='')); self.mk // self.mk.package
         #
         self.mk.format = S('format: tmp/format_py', pfx='')
         self.mk.format.py = (S('tmp/format_py: $(Y)')
@@ -501,21 +565,22 @@ class Project(Module):
                              // 'touch $@')
         #
         self.mk.meta = \
-            (S('meta: $(PY) $(MODULE).py', pfx='')
-             // '$^ $@'
+            (S('meta: $(PY) $(MODULE).metaL.py', pfx='')
+             // '$^'
              // '$(MAKE) format')
         #
-        self.mk.all = \
+        self.mk.all = (S('all:', pfx=''))
+        self.mk.test = (S('test:', pfx=''))
+        self.mk.all_ = \
             (Sec('all', pfx='')
-                // (S('all:', pfx=''))
+                // self.mk.all
                 // self.mk.meta
-                // (S('test:', pfx=''))
+                // self.mk.test
                 // self.mk.format // self.mk.format.py
              )
-        self.mk // self.mk.all
+        self.mk // self.mk.all_
         #
-        self.mk // (Sec('tool', pfx='')
-                    )
+        self.mk.rule = Sec('rule', pfx=''); self.mk // self.mk.rule
         #
         self.mk.doc_ = Sec('doc', pfx=''); self.mk // self.mk.doc_
         self.mk.doxy = \
@@ -536,8 +601,9 @@ class Project(Module):
         self.mk.update // self.mk.update.py
         #
         self.mk.install_ \
-            // (S('Linux_install Linux_update:', pfx='')
-                // 'sudo apt update'
+            // (S('Linux_install Linux_update:',
+                  pfx='', sfx='endif')
+                // S('sudo apt update', pfx='\nifneq (,$(shell which apt))')
                 // 'sudo apt install -u `cat apt.txt apt.dev`')
         self.mk // self.mk.install_
         #
@@ -563,11 +629,12 @@ class Project(Module):
                 // 'git tag $(NOW)-$(REL)'
                 // 'git push -v --tags'
                 // '$(MAKE) ponymuck'
-                ) \
-            // (S('zip:', pfx='\n.PHONY: zip\nZIP = $(TMP)/$(MODULE)_$(BRANCH)_$(NOW)_$(REL).src.zip')
-                // 'git archive --format zip --output $(ZIP) HEAD'
-                // '$(MAKE) doxy ; zip -r $(ZIP) docs'
                 )
+        self.mk.zip = \
+            (S('zip:', pfx='\n.PHONY: zip\nZIP = $(TMP)/$(MODULE)_$(BRANCH)_$(NOW)_$(REL).src.zip')
+             // 'git archive --format zip --output $(ZIP) HEAD'
+             // '$(MAKE) doxy ; zip -r $(ZIP) docs')
+        self.mk.merge_ // self.mk.zip
 
     def vscode(self):
         self.vscode = Dir('.vscode'); self.d // self.vscode
@@ -626,8 +693,8 @@ class Project(Module):
         self.settings = jsonFile('settings'); self.vscode // self.settings
         #
         self.multi = (S('"multiCommand.commands": [', '],'))
-        self.multi // self.multiCommand('f11', 'make rust')
-        self.multi // self.multiCommand('f12', 'make meta')
+        self.multi // self.multiCommand('f11', 'make meta')
+        self.multi // self.multiCommand('f12', 'make all')
         #
         self.exclude = (S('"files.exclude": {', '},')
                         // f'"**/{self}/**":true, "**/docs/**":true,'
@@ -656,7 +723,7 @@ class Project(Module):
             // self.giti.py
 
     def dirs(self):
-        self.d = Dir(f'{self}'); self.giti(); self // self.d
+        self.d = Dir(f'{self}'); self.giti()
         #
         self.bin = Dir('bin'); self.d // self.bin
         self.bin.giti = giti(); self.bin // (self.bin.giti // '*')
@@ -676,6 +743,7 @@ class Project(Module):
     def sync(self):
         self.sync_meta()
         self.d.sync()
+        for i in self: i.sync(self)
 
 ## @ingroup file
 class tomlFile(File):
@@ -699,24 +767,34 @@ class Rust(Mod):
     def package(self, p):
         p.toml = tomlFile('Cargo'); p.d // p.toml
         p.toml // (Sec(pfx='[package]')
-                   // f'name    = "{p:l}"'
-                   // f'version = "0.0.1"')
+                   // f'{"name":<22} = "{p:l}"'
+                   // f'{"version":<22} = "0.0.1"'
+                   // f'{"edition":<22} = "2018"'
+                   // ''
+                   // f'{"authors":<22} = ["{p.AUTHOR} <{p.EMAIL}>"]'
+                   // f'{"description":<22} = "{p.TITLE}"')
         #
         p.toml.deps = (Sec(pfx='\n[dependencies]')
-                       // 'tracing = "0.1"'
-                       // 'tracing-subscriber = "0.2"')
-        p.toml // p.toml.deps
+                       // f'{"tracing":<22} = "0.1"'
+                       // f'{"tracing-subscriber":<22} = "0.2"'
+                       // f'{"chrono":<22} = "0.4"'
+                       )
+        p.toml.web = (Sec('web'))
+        p.toml // (p.toml.deps // p.toml.web)
+        #
+        p.toml.build = (Sec(pfx='\n[build-dependencies]'))
+        p.toml // p.toml.build
         #
         p.toml.dev = (Sec(pfx='\n[dev-dependencies]'))
         p.toml // p.toml.dev
         #
         p.toml.unix = (Sec(pfx="\n[target.'cfg(unix)'.dependencies]")
-                       // 'libc = "0.2"'
+                       // f'{"libc":<22} = "0.2"'
                        )
         p.toml // p.toml.unix
         #
         p.toml.win = (Sec(pfx="\n[target.'cfg(windows)'.dependencies]")
-                      // 'windows = "0.19"'
+                      // f'{"windows":<22} = "0.19"'
                       )
         p.toml // p.toml.win
 
@@ -739,9 +817,13 @@ class Rust(Mod):
                 // f'{"CWATCH":<7} = $(CAR)/cargo-watch'
                 // f'{"RUSTC":<7} = $(CAR)/rucstc'
                 )
-        p.mk.all \
-            // (S('rust:', pfx='')
-                // '$(CWATCH) -w Cargo.toml -w src -x test -x fmt -x run')
+        #
+        p.mk.rust = \
+            (S('rust:', pfx='')
+             // '$(CWATCH) -w Cargo.toml -w src -x test -x fmt -x run')
+        p.mk.all // p.mk.rust
+        #
+        p.mk.meta[0].value += ' rs'
         p.mk.install.value += ' $(RUSTUP)'
         p.mk.update \
             // '$(RUSTUP) update && $(CARGO) update'
@@ -755,6 +837,7 @@ class Rust(Mod):
 
     def main(self, p):
         p.main = rsFile('main'); p.src // p.main
+        p.main.config = Sec('config', sfx=''); p.main // p.main.config
         p.main.mod = Sec('mod') // 'mod test;'; p.main // p.main.mod
         #
         p.main.extern = Sec('extern', pfx=''); p.main // p.main.extern
@@ -765,12 +848,18 @@ class Rust(Mod):
         #
         p.main.main = Fn('main', pfx='\n#[instrument]'); p.main // p.main.main
         #
+        p.main.args = \
+            (Sec('args')
+             // 'let argv: Vec<String> = std::env::args().collect();'
+             // 'let argc = argv.len();'
+             // 'info!("start #{:?} {:?}", argc, argv);')
+        p.main.main.atexit = (Sec('atexit') // 'info!("stop");')
         p.main.main \
             // 'tracing_subscriber::fmt().compact().init();' \
-            // 'let argv: Vec<String> = std::env::args().collect();' \
-            // 'let argc = argv.len();' \
-            // 'info!("start #{:?} {:?}", argc, argv);' \
-            // 'info!("stop");'
+            // p.main.args \
+            // p.main.main.atexit
+        #
+        p.main.web = Sec('web', pfx=''); p.main // p.main.web
 
     def test(self, p):
         p.test = rsFile('test'); p.src // p.test
@@ -822,6 +911,23 @@ class VEnv(Mod):
 class Python(Mod):
     PEP8 = '--ignore=E26,E302,E305,E401,E402,E701,E702'
 
+    def mk(self, p):
+        p.mk.update // '$(PIP) install --user -U -r requirements.txt'
+        p.mk.merge // 'MERGE += requirements.txt'
+
+    def src(self, p):
+        p.py = pyFile(f'{p}'); p.d // p.py
+        self.reqs(p)
+
+    def reqs(self, p):
+        p.reqs = File('requirements', '.txt'); p.d // p.reqs
+
+## Django project
+## @ingroup mods
+class Django(Mod):
+    def reqs(self, p):
+        assert p.py
+        p.reqs // 'Django'
 
 ## @defgroup circular
 ## @brief `metaL` circulat implementation
@@ -1077,6 +1183,166 @@ class SCRIPT(HTMLI): pass
 class META(HTMLS): pass
 class LINK(HTMLS): pass
 class IMG(HTMLS): pass
+class HR(HTMLS): pass
+
+
+## Rust WASM target
+## @ingroup mods
+class WASM(Mod):
+
+    def giti(self, p):
+        p.giti // '/dist/' // ''
+
+    def apt(self, p):
+        p.dev // 'npm'
+
+    def package(self, p):
+        p.toml.wasm = Sec(
+            pfx='\n[target.\'cfg(target_arch = "wasm32")\'.dependencies]')
+        p.toml // p.toml.wasm
+        p.toml.deps.dropall() // p.toml.web
+        p.toml.wasm \
+            // f'{"wasm-bindgen":<22} = "0.2"' \
+            // f'{"# js-sys":<22} = "0.3"' \
+            // f'{"# web-sys":<22} = "0.3"'
+        # p.toml.build \
+        #     // f'{"wasm-pack":<22} = "0.10"' \
+        #     // f'{"cargo-web":<22} = "0.6.26"'
+        # p.toml \
+        #     // (Sec(pfx='\n[lib]')
+        #         // 'path = "src/wasm.rs"'
+        #         // 'crate-type = ["cdylib"]')
+
+    def src(self, p):
+        p.wasm = rsFile('lib'); p.src // p.wasm
+        p.main.mod.ins(0, 'mod lib;')
+        p.wasm \
+            // 'extern crate wasm_bindgen;' // '' \
+            // 'use wasm_bindgen::prelude::*;'
+        p.wasm \
+            // (S('extern "C" {', '}',
+                  pfx='\n#[wasm_bindgen]')
+                // 'pub fn alert(s: &str);')
+        p.wasm \
+            // (S('pub fn greet(name: &str) {', '}',
+                  pfx='\n#[wasm_bindgen]')
+                // 'alert(&format!("Hello, {}!", name));')
+
+    def mk(self, p):
+        p.mk.rust.dropall() // 'trunk serve'
+        p.mk.install \
+            // '$(RUSTUP) toolchain install nightly' \
+            // '$(RUSTUP) target add wasm32-unknown-unknown --toolchain nightly' \
+            // '$(CARGO) install cargo-web wasm-pack'
+
+## Yew framework application
+## @ingroup mods
+class Yew(WASM):
+    def mk(self, p):
+        super().mk(p)
+        p.mk.meta[0].value += ' yew'
+
+    def package(self, p):
+        super().package(p)
+        p.toml.web \
+            // f'{"yew":<22} = "0.18"'
+
+    def src(self, p):
+        super().src(p)
+        # p.src.remove(p.wasm)
+        self.index(p)
+        self.main(p)
+
+    def main(self, p):
+        p.main.extern.dropall()
+        p.main.use.dropall()
+        #
+        p.yew = (Sec('yew', pfx='') // 'use yew::prelude::*;')
+        p.main.before(p.main.main, p.yew)
+        #
+        p.yew.msg = S('enum Msg {', '}', pfx='')
+        p.yew // (p.yew.msg // 'Inc,' // 'Dec,')
+        #
+        p.yew.model = S('struct Model {', '}', pfx='')
+        p.yew // (p.yew.model // 'value: isize,')
+        #
+        p.yew.component = S('impl Component for Model {', '}', pfx='')
+        #
+        p.yew.create = \
+            (Fn('create',
+                ['_props: Self::Properties', 'link: ComponentLink<Self>'],
+                'Self', pfx='')
+                // (S('Self {', '}')))
+        #
+        p.yew.update = \
+            (Fn('update',
+                ['&mut self', 'msg: Self::Message'],
+                'ShouldRender', pfx='')
+                // (S('match msg {', '}')))
+        #
+        p.yew.change = \
+            (Fn('change',
+                ['&mut self', '_props: Self::Properties'],
+                'ShouldRender', pfx='')
+                // 'false')
+        #
+        p.yew.view = \
+            (Fn('view', ['&self'], 'Html', pfx='')
+             // (S('html! {', '}') // DIV()))
+        #
+        p.yew \
+            // (p.yew.component
+                // 'type Message = Msg;'
+                // 'type Properties = ();'
+                // p.yew.create
+                // p.yew.update
+                // p.yew.change
+                // p.yew.view
+                )
+        #
+        p.main.main.pfx = ''
+        p.main.main.dropall() // 'yew::start_app::<Model>();'
+
+    def index(self, p):
+        p.html = htmlFile('index'); p.d // p.html
+        p.html \
+            // '<!DOCTYPE html>' \
+            // (HTML()
+                // Web.bootstrap_head(self, p)
+                // (BODY() // DIV(clazz='container'))
+                // Web.bootstrap_script(self, p)
+                )
+
+    def dirs(self, p):
+        Web.static(self, p)
+
+    # def mk(self, p):
+    #     p.mk.install // '$(CARGO) install cargo-web'
+
+## @ingroup mods
+## Actix Web framework
+class Actix(Mod):
+    def mk(self, p):
+        p.mk.meta[0].value += ' actix'
+
+    def package(self, p):
+        p.toml.web \
+            // f'{"actix-web":<22} = "3.3"'
+
+    def src(self, p):
+        p.main.extern.ins(0, 'extern crate actix_web;')
+        p.main.use.ins(0,
+                       (S('use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};',
+                          pfx='#[allow(unused_imports)]')))
+        #
+        p.main.web \
+            // (S('async fn hello() -> impl Responder {', '}',
+                  pfx='#[get("/")]')
+                // 'HttpResponse::Ok().body("Hello world!")')
+        p.main.web \
+            // (S('async fn echo(req_body: String) -> impl Responder {', '}',
+                  pfx='\n#[post("/echo")]')
+                // 'HttpResponse::Ok().body(req_body)')
 
 ## @ingroup mods
 ## `Rocket.rs` web framework
@@ -1085,21 +1351,12 @@ class Rocket(Mod):
     def mk(self, p):
         p.mk.meta[0].value += ' web'
 
-    def dir(self, p):
-        self.static(p)
+    def dirs(self, p):
+        Web.static(self, p)
         self.templates(p)
 
     def extensions(self, p):
         p.ext // '"karunamurti.tera",'
-
-    def static(self, p):
-        p.static = Dir('static')
-        p.d // p.static; p.static // giti()
-        #
-        p.css = File('css', '.css'); p.static // p.css
-        p.css \
-            // '#localtime { position: absolute; top: 0; right: 0; }' \
-            // '#logo      { max-height: 64px; }'
 
     def templates(self, p):
         p.templates = Dir('templates')
@@ -1114,14 +1371,7 @@ class Rocket(Mod):
         #
         p.all = teraFile('all'); p.templates // p.all
         #
-        p.all.head = (HEAD()
-                      // (TITLE() // f'{p}')
-                      // META(charset='utf-8')
-                      // META(name="viewport", content="width=device-width, initial-scale=1")
-                      // LINK(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/bootswatch/5.1.0/darkly/bootstrap.min.css")
-                      // LINK(rel="stylesheet", href="/static/css.css")
-                      // SCRIPT(src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js")
-                      )
+        p.all.head = Web.bootstrap_head(self, p)
         #
         p.all \
             // '<!DOCTYPE html>' \
@@ -1137,9 +1387,8 @@ class Rocket(Mod):
                 )
 
     def package(self, p):
-        p.toml.deps \
-            // (Sec('web')
-                // 'chrono = "0.4"'
+        p.toml.web \
+            // (Sec()
                 // 'serde = "1.0"'
                 // 'serde_derive = "1.0"'
                 // 'rocket = { version = "0.4" }'
@@ -1159,7 +1408,14 @@ class Rocket(Mod):
                        // 'use rocket_contrib::templates::Template;'
                        ))
         #
-        p.main.static = Sec(pfx=''); p.main // p.main.static
+        p.main.main.ins(-1,
+                        (S('rocket::ignite()')
+                         // '.mount("/", routes![favicon, logo, static_file, index])'
+                         // '.attach(Template::fairing())'
+                         // '.launch();'
+                         ))
+        #
+        p.main.static = Sec('static', pfx=''); p.main.web // p.main.static
         p.main.static \
             // 'use rocket::response::NamedFile;' \
             // 'use std::path::{Path, PathBuf};' \
@@ -1175,29 +1431,22 @@ class Rocket(Mod):
                    pfx='\n#[get("/static/<file..>")]')
                 // 'NamedFile::open(Path::new("static/").join(file)).ok()')
         #
-        p.main \
+        p.main.web \
             // (S('struct WebState {', '}', pfx='\n#[derive(Serialize)]')
                 // 'localtime: String,'
                 // 'title: &\'static str,'
                 )
         #
-        p.main \
+        p.main.web \
             // (Fn('index', ret='Template', pfx='\n#[get("/")]')
                 // (S('let context = WebState {', '};')
                     // 'title: "index",'
                     // 'localtime: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),'
                     )
                 // 'Template::render("index", &context)')
-        #
-        p.main.main \
-            // (S('rocket::ignite()')
-                // '.mount("/", routes![favicon, logo, static_file, index])'
-                // '.attach(Template::fairing())'
-                // '.launch();'
-                )
 
-## @ingroup mods
 ## Rust gaming
+## @ingroup mods
 class Game(Mod):
 
     def apt(self, p):
@@ -1213,21 +1462,258 @@ class Game(Mod):
             // '# features = ["ttf","gfx","mixer"]'
 
     def src(self, p):
-        p.main.mod.ins(0, 'mod game;')
         p.main.extern.ins(0, 'extern crate sdl2;')
+        p.main.main.ins(-1, 'game_loop(argv[0].clone());')
+        #
+        p.main.game = (Sec('game', pfx='')); p.main // p.main.game
+        p.main.config // (Sec('game', pfx='')
+                          // '// default screen window width'
+                          // 'pub const W: u16 = 640;'
+                          // '// default screen window height'
+                          // 'pub const H: u16 = 480;'
+                          )
+        #
+        p.main.game \
+            // (S('pub struct Game {', '}', pfx='\n#[allow(dead_code)]')
+                // 'pub argv: String,'
+                // 'pub w: u16,'
+                // 'pub h: u16,'
+                // 'pub sdl: sdl2::Sdl,'
+                // 'pub video: sdl2::VideoSubsystem,'
+                // 'pub window: sdl2::video::Window,'
+                // 'pub icon: sdl2::surface::Surface<\'static>,'
+                // 'pub events: sdl2::EventPump,'
+                // '// pub canvas: sdl2::render::WindowCanvas,'
+                )
+        #
+        p.main.game \
+            // (S('impl Game {', '}', pfx='')
+                // (Fn('new', ['argv: String'], 'Self', pfx='#[instrument]')
+                // 'let context = sdl2::init().unwrap();'
+                // 'let video = context.video().unwrap();'
+                // (S('let window = video')
+                    // '.window(argv.as_str(), W as u32, H as u32)'
+                    // '.build()' // '.unwrap();'
+                    )
+                    // 'let icon = sdl2::image::LoadSurface::from_file("doc/logo.png").unwrap();'
+                    // '// let canvas = window.into_canvas().build().unwrap();'
+                // 'let event_pump = context.event_pump().unwrap();'
+                // (S('Game {', '}')
+                    // 'argv: argv,' // 'w: W,' // 'h: H,'
+                    // 'sdl: context,' // 'video: video,'
+                    // 'window: window,' // 'icon: icon,'
+                    // 'events: event_pump,'
+                    )))
+        #
+        p.main.gameloop = \
+            (Fn('game_loop', ['argv: String'], pfx='', sfx='')
+             // 'let mut game = Game::new(argv);'
+             // ((S('\'event: loop {', '}')
+                  // (S('for event in game.events.poll_iter() {', '}')
+
+                 // 'info!("{:?}", event);'
+                      // (S('match event {', '}')
+                          // 'sdl2::event::Event::Quit { .. }'
+                          // (S('| sdl2::event::Event::KeyDown {')
+                          // 'keycode: Some(sdl2::keyboard::Keycode::Escape),' // '..')
+                          // '} => break \'event,' // '_ => (),')
+                      )))
+             )
+        p.main.game // p.main.gameloop
+        # p.main.mod.ins(0, 'mod game;')
+        # p.main.extern.ins(0, 'extern crate sdl2;')
+
+## tiny Forth-like interpreter
+## @ingroup mods
+class Forth(Mod):
+    def src(self, p):
+        p.forth = Sec('forth', pfx=''); p.main // p.forth
+        #
+        p.main.config.forth = \
+            (Sec('forth', pfx='')
+             // '/// memory size, bytes'
+             // '#[allow(non_upper_case_globals)]'
+             // 'pub const Msz: usize = 0x10000;'
+             // '/// return stack size, cells'
+             // '#[allow(non_upper_case_globals)]'
+             // 'pub const Rsz: usize = 0x100;'
+             // '/// data stack size, cells'
+             // '#[allow(non_upper_case_globals)]'
+             // 'pub const Dsz: usize = 0x10;'
+             )
+        p.main.config // p.main.config.forth
+        #
+        p.forth.struct = \
+            (S('pub struct Forth {', '}',
+               pfx='\n/// FVM: Forth Virtual Machine state\n#[allow(dead_code)]')
+             // '/// main memory size, bytes' // 'pub msz: usize,'
+             // '/// main memory' // 'm: Vec<u8>,'
+             // '/// instruction pointer' // 'pub ip: usize,'
+             // '/// compilation pointer' // 'pub cp: usize,'
+             // ''
+             // '/// return stack size, cells' // 'pub rsz: usize,'
+             // '/// return stack' // 'r: Vec<usize>,'
+             // '/// return stack pointer' // 'pub rp: usize,'
+             // ''
+             // '/// data stack size, cells' // 'pub dsz: usize,'
+             // '/// data stack' // 'd: Vec<isize>,'
+             // '/// data stack pointer' // 'pub dp: usize,'
+             )
+        p.forth // p.forth.struct
+        #
+        p.forth.impl = \
+            (S('impl Forth {', '}', pfx='')
+             // (Fn('default', [], 'Self')
+                 // 'Forth::new(Msz, Rsz, Dsz)')
+             // (Fn('new', ['ms: usize', 'rs: usize', 'ds: usize'], 'Self'))
+             ); p.forth // p.forth.impl
+        #
+        self.initf(p)
+
+    def initf(self, p):
+        p.lib.init = File('init', '.f', comment='\\'); p.lib // p.lib.init
+        p.lib.init \
+            // '\\ system init' \
+            // '\\ this is single line comment in FORTH language prefixed with \\' \
+            // '' // '\\ numbers' \
+            // '-01 +02.30 +5e-5 0xDeadBeef 0b1101' \
+            // '? \\ print data stack' \
+            // '. \\ clean data stack' \
+            // '? \\ must be empty'
+
+    def mk(self, p):
+        p.mk.meta[0].value += ' forth'
+
+## SCADA/IoT platform
+## @ingroup mods
+class SCADA(Actix):
+    def mk(self, p):
+        p.mk.meta[0].value += ' scada'
+
+    def apt(self, p):
+        super().apt(p)
+        p.dev // 'sqlitebrowser'
+        p.apt // 'sqlite3'
+
+## @ingrou
+class Java(Mod):
+    def extensions(self, p):
+        p.ext // '"redhat.java",'
+
+    def dirs(self, p):
+        p.lib.giti.ins(0, '*.jar')
+
+    def mk(self, p):
+        p.mk.dir \
+            // f'{"CP":<7} = bin' \
+            // f'{"PKDIR":<7} = src/$(shell echo $(PACKAGE) | sed "s/\./\//g" )'
+        #
+        p.mk.jar = \
+            (Sec('jar', pfx='')
+             // 'GJF_VER        = 1.7'
+             // 'GJF_JAR        = google-java-format-$(GJF_VER).jar'
+             // 'GJF            = lib/$(GJF_JAR)'
+             // ''
+             // 'JUNIT_VER      = 4.13.2'
+             // 'JUNIT_JAR      = junit-$(JUNIT_VER).jar'
+             // 'JUNIT          = lib/$(JUNIT_JAR)'
+             // 'CP            += $(JUNIT)'
+             // ''
+             // 'HAMCREST_VER   = 2.2'
+             // 'HAMCREST_JAR   = hamcrest-$(HAMCREST_VER).jar'
+             // 'HAMCREST       = lib/$(HAMCREST_JAR)'
+             // 'CP            += $(HAMCREST)'
+             )
+        p.mk.before(p.mk.tool, p.mk.jar)
+        #
+        p.mk.tool \
+            // f'{"JAVA":<7} = $(JAVA_HOME)/bin/java' \
+            // f'{"JAVAC":<7} = $(JAVA_HOME)/bin/javac'
+        p.mk.src \
+            // f'J += $(shell find $(PKDIR) -type f -regex ".+.java$$")' \
+            // f'S += $(J)'
+        p.mk.cfg \
+            // f'{"CLASS":<7} = $(shell echo $(J) | sed "s|\.java|.class|g" | sed "s|src/|bin/|g")' \
+            // f'{"JPATH":<7} = -cp $(shell echo $(CP) | sed "s/ /:/g")' \
+            // f'{"JFLAGS":<7} = -d $(BIN) $(JPATH)'
+        p.mk.all.value += ' test format'
+        p.mk.format.value += ' tmp/format_java'
+        p.mk.all_.after(p.mk.format,
+                        (S('tmp/format_java: $(J)')
+                         // '$(JAVA) $(JPATH) -jar $(GJF) --replace $^'
+                         // 'touch $@'))
+        p.mk.test.value += ' $(CLASS)'
+        p.mk.test \
+            // (S('$(JAVA) $(JPATH) \\')
+                // 'org.junit.runner.JUnitCore $(TESTS)')
+        #
+        p.mk.rule \
+            // (S('$(CLASS): $(J)')
+                // '$(JAVAC) $(JFLAGS) $^'
+                // '$(MAKE) format')
+        #
+        p.mk.install.ins(0, '$(MAKE) gjf junit')
+        p.mk.install_ \
+            // (S('$(GJF):', pfx='\ngjf: $(GJF)')
+                // '$(CURL) $@ https://github.com/google/google-java-format/releases/download/google-java-format-$(GJF_VER)/google-java-format-$(GJF_VER)-all-deps.jar')
+        p.mk.install_ \
+            // (S('$(JUNIT):', pfx='junit: $(JUNIT) $(HAMCREST)')
+                // '$(CURL) $@ https://search.maven.org/remotecontent?filepath=junit/junit/$(JUNIT_VER)/$(JUNIT_JAR)')
+        p.mk.install_ \
+            // (S('$(HAMCREST):', pfx='hamcrest: $(HAMCREST)')
+                // '$(CURL) $@ https://search.maven.org/remotecontent?filepath=org/hamcrest/hamcrest/$(HAMCREST_VER)/$(HAMCREST_JAR)')
+        #
+        p.mk.zip.drop() // 'zip $(ZIP) lib/*.jar'
+
+    def apt(self, p):
+        p.dev // 'default-jdk-headless'
+        # //'libantlr-dev'
+
+class netCracker(Mod):
+    def dirs(self, p):
+        com = Dir('com')
+        nc = Dir('nc')
+        edu = Dir('edu')
+        ta = Dir('ta')
+        ponyatov = Dir('ponyatov')
+        pr1 = Dir('pr1')
+        p.src // com; com // nc; nc // edu; edu // ta; ta // ponyatov; ponyatov // pr1
+
+    def mk(self, p):
+        p.mk.all_.before(p.mk.test,
+                         (Sec(pfx='')
+                          // 'TESTS += $(PACKAGE).test.MyTest'
+                          // 'TESTS += $(PACKAGE).test.TaskTest'))
+
+## empty project initialization
+## @ingroup mods
+class Ini(Mod):
+    def sync(self, p):
+        super().sync(p)
+        # os.system('ln -fs ~/metaL.py metaL.py')
+        # os.system('git checkout -b ponymuck')
+        # os.system('git push -v -u bb ponymuck')
+        # os.system(f'mv {p}/* ./ ; mv {p}/.* ./ ')
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'meta':
-        p = Project() | metaL()
-    elif sys.argv[1] == 'rs':
-        p = Project() | Rust()
-    else:
-        raise SyntaxError(['init', sys.argv])
-    #
-    for mod in sys.argv[2:]:
+    # if sys.argv[1] == 'meta':
+    #      | metaL()
+    # elif sys.argv[1] == 'rs':
+    #     p = Project() | Rust()
+    # else:
+    #     raise SyntaxError(['init', sys.argv])
+    # #
+    p = Project()
+    for mod in sys.argv[1:]:
         p = p | {
+            'ini': Ini(),
+            'py': Python(),
+            'java': Java(),
+            'nec': netCracker(),
             'web': Rocket(),
             'game': Game(),
+            'scada': SCADA(),
+            'yew': Yew(),
         }[mod]
     #
     p.sync()
