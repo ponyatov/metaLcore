@@ -225,7 +225,19 @@ class Container(Object):
     def __init__(self, V=''): super().__init__(V)
 
 ## @ingroup container
-class Vector(Container): pass
+class Vector(Container):
+    def gen(self, to, depth=0):
+        ret = S('[', ']')
+        #
+        try:
+            for i in self.nest[:-1]:
+                ret // f'{i},'
+        except IndexError: pass
+        try:
+            ret // self.nest[-1]
+        except IndexError: pass
+        #
+        return ret.gen(to, depth)
 
 ## @ingroup container
 class Map(Container): pass
@@ -1166,11 +1178,12 @@ class Django(Mod):
         self.fixture(p)
 
     def admin_model(self, model, fields=[]):
+        flds = Vector()
+        for i in fields: flds // f"'{i}'"
         return (Sec()
                 // (S(f'class {model}Admin(admin.ModelAdmin):', pfx='')
                     // f"model = {model}"
-                    // (S(f"list_display = fields({model},")
-                        // f"{fields})"))
+                    // (S(f"list_display = fields({model},") // flds // ')'))
                 // S(f"admin.site.register({model}, {model}Admin)", pfx='')
                 )
 
@@ -1196,7 +1209,9 @@ class Django(Mod):
                         ))
         #
         p.admin // self.admin_model('CustomUser',
-                                    ['username', 'last_name', 'first_name', 'second_name', 'email'])
+                                    ['username',
+                                     'last_name', 'first_name', 'second_name', 'email',
+                                     'phone', 'telegram', 'vk'])
         p.admin // self.admin_model('Address')
         #
         p.t = Dir('templates'); p.app // p.t
@@ -1246,15 +1261,29 @@ class AppConfig(AppConfig):
     def models(self, p):
         p.models = pyFile('models'); p.app // p.models
         p.models \
-            // 'from django.db import models' // ''
-        p.models \
             // 'from django.db import models' \
             // 'from django.contrib.auth.models import AbstractUser'
         p.models \
             // (S('class CustomUser(AbstractUser):', pfx='')
                 // "second_name = models.CharField(verbose_name='Отчество',"
                 // "                               max_length=33,"
-                // "                               null=True, blank = True)"
+                // "                               null=True, blank=True)"
+                // "phone = models.CharField(verbose_name='телефон',"
+                // "                         max_length=0x11,"
+                // "                         null=True, blank=True)"
+                // "telegram = models.CharField(verbose_name='telegram',"
+                // "                            max_length=0x11,"
+                // "                            null=True, blank=True)"
+                // "vk = models.URLField(verbose_name='vk',"
+                // "                     max_length=0x11,"
+                // "                     null=True, blank=True)"
+                )
+        p.models \
+            // (S('class Address(models.Model):', pfx='')
+                // (S('class Meta:')
+                // "verbose_name = 'Адрес'"
+                // "verbose_name_plural = 'Адреса'"
+                    )
                 )
 
     def manage(self, p):
