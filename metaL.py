@@ -1127,7 +1127,7 @@ class Django(Mod):
 
     def apt(self, p):
         p.dev // 'sqlitebrowser'
-        p.apt // 'sqlite3'
+        p.apt // 'sqlite3' // 'python3-psycopg2'
 
     def dirs(self, p):
         p.fixture = Dir('fixture'); p.d // p.fixture
@@ -1212,7 +1212,8 @@ class Django(Mod):
                                     ['username',
                                      'last_name', 'first_name', 'second_name', 'email',
                                      'phone', 'telegram', 'vk'])
-        p.admin // self.admin_model('Address')
+        p.admin // self.admin_model('Address',
+                                    ['office'])
         #
         p.t = Dir('templates'); p.app // p.t
         p.t.admin = Dir('admin'); p.t // p.t.admin
@@ -1280,7 +1281,11 @@ class AppConfig(AppConfig):
                 )
         p.models \
             // (S('class Address(models.Model):', pfx='')
-                // (S('class Meta:')
+                // "office = models.CharField(verbose_name='офис',"
+                // "                         max_length=33,"
+                // "                         null=True, blank=True)"
+                // S("def __str__(self): return self.office", pfx='')
+                // (S('class Meta:', pfx='')
                 // "verbose_name = 'Адрес'"
                 // "verbose_name_plural = 'Адреса'"
                     )
@@ -1335,6 +1340,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.gis',
     'app',
 ]"""
         p.settings \
@@ -1380,7 +1386,8 @@ TEMPLATES = [
             // """
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
+        # 'ENGINE': 'django.db.backends.sqlite3',
+        'ENGINE': 'django.contrib.gis.db.backends.spatialite',
         'NAME': BASE_DIR / 'tmp' / 'db.sqlite3',
     }
 }"""
