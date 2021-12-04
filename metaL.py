@@ -397,6 +397,7 @@ class Mod(Module):
         super().__init__(self.tag())
 
     def pipe(self, p):
+        self.inher(p)
         self.dirs(p)
         self.giti(p)
         self.package(p)
@@ -416,6 +417,7 @@ class Mod(Module):
     def sync(self, p): pass
     # print(self.head(), p.head())
 
+    def inher(self, p): pass
     def apt(self, p): pass
     def dirs(self, p): pass
     def giti(self, p): pass
@@ -505,7 +507,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.'''
         self.apt = File('apt', '.txt'); self.d // self.apt
         self.apt \
             // 'git make curl' \
-            // 'python3 python3-venv'
+            // 'python3 python3-venv python3-pip'
 
     def meta(self):
         self.meta = pyFile(f'{self}.metaL')
@@ -565,7 +567,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.'''
         self.mk = mkFile(); self.d // self.mk
         self.mk.var = (Sec('var')
                        // f'{"MODULE":<7} = $(notdir $(CURDIR))'
-                       // f'{"OS":<7} = $(shell uname -o)'
+                       // f'{"OS":<7} = $(shell uname -s)'
                        // f'{"NOW":<7} = $(shell date +%d%m%y)'
                        // f'{"REL":<7} = $(shell git rev-parse --short=4 HEAD)'
                        // f'{"BRANCH":<7} = $(shell git rev-parse --abbrev-ref HEAD)'
@@ -654,7 +656,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.'''
         self.mk.msys = (Sec(pfx='')
                         // '.PHONY: Msys_install Msys_update'
                         // (S('Msys_install:')
-                        // 'pacman -S git make python3 python3-pip')
+                            // 'pacman -S git make python3 python3-pip')
                         // 'Msys_update:'
                         )
         self.mk.install_ \
@@ -666,26 +668,27 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.'''
         self.mk.merge_ = Sec('merge', pfx=''); self.mk // self.mk.merge_
         self.mk.merge = \
             (Sec()
-                // 'MERGE  = Makefile README.md .gitignore apt.dev apt.txt doxy.gen $(S)'
-                // 'MERGE += .vscode bin doc lib src tmp')
+             // 'SHADOW ?= shadow'
+                // 'MERGE   = Makefile README.md .gitignore apt.dev apt.txt doxy.gen $(S)'
+                // 'MERGE  += .vscode bin doc lib src tmp')
         self.mk.merge_ \
             // self.mk.merge \
-            // (S('ponymuck:', pfx='\n.PHONY: ponymuck')
+            // (S('shadow:', pfx='\n.PHONY: shadow')
                 // 'git push -v'
-                // 'git checkout $@'
+                // 'git checkout $(SHADOW)'
                 // 'git pull -v'
                 ) \
             // (S('dev:', pfx='\n.PHONY: dev')
                 // 'git push -v'
                 // 'git checkout $@'
                 // 'git pull -v'
-                // 'git checkout ponymuck -- $(MERGE)'
+                // 'git checkout shadow -- $(MERGE)'
                 // '$(MAKE) doxy ; git add -f docs'
                 ) \
             // (S('release:', pfx='\n.PHONY: release')
                 // 'git tag $(NOW)-$(REL)'
                 // 'git push -v --tags'
-                // '$(MAKE) ponymuck'
+                // '$(MAKE) shadow'
                 )
         self.mk.zip = \
             (S('zip:', pfx='\n.PHONY: zip\nZIP = $(TMP)/$(MODULE)_$(BRANCH)_$(NOW)_$(REL).src.zip')
@@ -712,7 +715,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.'''
         self.tasks.task = (S('"tasks": [', ']')
                            // self.vsTask('project', 'install')
                            // self.vsTask('project', 'update')
-                           // self.vsTask('git', 'ponymuck')
+                           // self.vsTask('git', 'shadow')
                            // self.vsTask('git', 'dev')
                            // self.vsTask('metaL', 'meta')
                            )
@@ -739,10 +742,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.'''
         return (S('{', '},')
                 // f'"command": "multiCommand.{key}",'
                 // (S('"sequence": [', ']')
-                // '"workbench.action.files.saveAll",'
-                // (S('{"command": "workbench.action.terminal.sendSequence",')
-                    // f'"args": {{"text": "\\u000D clear ; {command} \\u000D"}}}}'
-                    )
+                    // '"workbench.action.files.saveAll",'
+                    // (S('{"command": "workbench.action.terminal.sendSequence",')
+                        // f'"args": {{"text": "\\u000D clear ; {command} \\u000D"}}}}'
+                        )
                     )
                 )
 
@@ -753,11 +756,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.'''
         self.multi // self.multiCommand('f11', 'make meta')
         self.multi // self.multiCommand('f12', 'make all')
         #
-        self.exclude = (S('"files.exclude": {', '},')
-                        // f'"**/{self}/**":true, "**/docs/**":true,'
-                        // '"**/__pycache__/**":true,'
-                        )
-        self.watcher = (S('"files.watcherExclude": {', '},'))
+        self.files = (Sec()
+                      // f'"**/{self}/**":true, "**/docs/**":true,'
+                      // '"**/__pycache__/**":true,'
+                      )
+        self.exclude = S('"files.exclude": {', '},') // self.files
+        self.watcher = (S('"files.watcherExclude": {', '},') // self.files)
         self.assoc = (S('"files.associations": {', '},'))
         self.files = (Sec('files', pfx='')
                       // self.exclude // self.watcher // self.assoc)
@@ -767,9 +771,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.'''
                          // '"terminal.integrated.shellArgs.windows": ["--login", "-i"],'
                          // '"terminal.integrated.env.windows":'
                          // (S('{', '},')
-                         // '"MSYSTEM": "MINGW64",'
-                         // '"CHERE_INVOKING":"1",'
-                         // '// "PATH" : "/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/c/Windows/System32:/c/Windows:/c/Windows/System32/Wbem"')
+                             // '"MSYSTEM": "MINGW64",'
+                             // '"CHERE_INVOKING":"1",'
+                             // '// "PATH" : "/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/c/Windows/System32:/c/Windows:/c/Windows/System32/Wbem"')
                          )
         #
         self.editor = (Sec('editor', pfx='')
@@ -1038,7 +1042,7 @@ class Python(Mod):
         p.mk.test // '$^'
         #
         p.mk.update // '$(PIP) install --user -U -r requirements.txt'
-        p.mk.merge // 'MERGE += requirements.txt'
+        p.mk.merge // 'MERGE  += requirements.txt'
 
     def config(self, p):
         p.config = (pyFile('config') // 'import os' // ''); p.d // p.config
@@ -1082,6 +1086,10 @@ DEBUG = True"""
 ## @ingroup mods
 class Django(Mod):
 
+    def inher(self, p):
+        if not hasattr(p, 'py'):
+            p = p | Python()
+
     maketasks = {'runserver': '', 'makemigrations': '', 'migrate': '',
                  'dumpdata': ' --indent 2 > tmp/$@.json',
                  'loaddata': ' fixture/user.json'}
@@ -1100,8 +1108,8 @@ class Django(Mod):
         p.mk.all.dropall()
         #
         for i in self.maketasks:
-            p.mk.all_ // (S(f'{i}: manage.py', pfx='')
-                          // f'./$^ $@{self.maketasks[i]}')
+            p.mk.all_ // (S(f'{i}: $(PY) manage.py', pfx='')
+                          // f'$^ $@{self.maketasks[i]}')
         #
         p.mk.install // '$(MAKE) migrate loaddata'
 
@@ -1118,26 +1126,26 @@ class Django(Mod):
         p.fixture.user \
             // (S('[', ']')
                 // (S('{', '}')
-                // '"model": "app.customuser",'
-                // '"pk": 1,'
-                // (S('"fields": {', '}')
-                    // '"password": "pbkdf2_sha256$260000$zmTo77UpOSFFM0VsnFo6Wr$SQYvj/o9IijWywXDasN9qfVRAaiZRAR4+q+x+/UbcJk=",'
-                    // f'"last_login": "{isonow}Z",'
-                    // '"is_superuser": true,'
-                    // '"username": "dponyatov",'
-                    // '"first_name": "Dmitry",'
-                    // '"second_name": "A",'
-                    // '"last_name": "Ponyatov",'
-                    // '"email": "dponyatov@gmail.com",'
-                    // f'"phone": "+79171010818",'
-                    // f'"telegram": "@dponyatov",'
-                    // f'"vk": "https://vk.com/id266201297",'
-                    // '"is_staff": true,'
-                    // '"is_active": true,'
-                    // f'"date_joined": "{isonow}Z",'
-                    // '"groups": [],'
-                    // '"user_permissions": []'
-                    )))
+                    // '"model": "app.customuser",'
+                    // '"pk": 1,'
+                    // (S('"fields": {', '}')
+                        // '"password": "pbkdf2_sha256$260000$zmTo77UpOSFFM0VsnFo6Wr$SQYvj/o9IijWywXDasN9qfVRAaiZRAR4+q+x+/UbcJk=",'
+                        // f'"last_login": "{isonow}Z",'
+                        // '"is_superuser": true,'
+                        // '"username": "dponyatov",'
+                        // '"first_name": "Dmitry",'
+                        // '"second_name": "A",'
+                        // '"last_name": "Ponyatov",'
+                        // '"email": "dponyatov@gmail.com",'
+                        // f'"phone": "+79171010818",'
+                        // f'"telegram": "@dponyatov",'
+                        // f'"vk": "https://vk.com/id266201297",'
+                        // '"is_staff": true,'
+                        // '"is_active": true,'
+                        // f'"date_joined": "{isonow}Z",'
+                        // '"groups": [],'
+                        // '"user_permissions": []'
+                        )))
 
     def tasks(self, p):
         for i in self.maketasks:
@@ -1752,14 +1760,14 @@ class Rocket(Mod):
             // 'use rocket::response::NamedFile;' \
             // 'use std::path::{Path, PathBuf};' \
             // (Fn('favicon', [], 'Option<NamedFile>',
-                pfx='\n#[get("/favicon.ico")]')
+                   pfx='\n#[get("/favicon.ico")]')
                 // 'NamedFile::open(Path::new("doc/").join("logo.png")).ok()') \
             // (Fn('logo', [], 'Option<NamedFile>',
-                pfx='\n#[get("/static/logo.png")]')
+                   pfx='\n#[get("/static/logo.png")]')
                 // 'favicon()') \
             // (Fn('static_file',
                    ['file: PathBuf'],
-                'Option<NamedFile>',
+                   'Option<NamedFile>',
                    pfx='\n#[get("/static/<file..>")]')
                 // 'NamedFile::open(Path::new("static/").join(file)).ok()')
         #
@@ -1835,21 +1843,21 @@ class Game(Mod):
         p.main.game \
             // (S('impl Screen {', '}', pfx='')
                 // (Fn('new', ['argv: String'], 'Self', pfx='#[instrument]')
-                // 'let context = sdl2::init().unwrap();'
-                // 'let video = context.video().unwrap();'
-                // (S('let window = video')
-                    // '.window(argv.as_str(), W as u32, H as u32)'
-                    // '.build()' // '.unwrap();'
-                    )
+                    // 'let context = sdl2::init().unwrap();'
+                    // 'let video = context.video().unwrap();'
+                    // (S('let window = video')
+                        // '.window(argv.as_str(), W as u32, H as u32)'
+                        // '.build()' // '.unwrap();'
+                        )
                     // 'let icon = sdl2::image::LoadSurface::from_file("doc/logo.png").unwrap();'
                     // '// let canvas = window.into_canvas().build().unwrap();'
-                // 'let event_pump = context.event_pump().unwrap();'
-                // (S('Screen {', '}')
-                    // 'argv: argv,' // 'w: W,' // 'h: H,'
-                    // 'sdl: context,' // 'video: video,'
-                    // 'window: window,' // 'icon: icon,'
-                    // 'events: event_pump,'
-                    )))
+                    // 'let event_pump = context.event_pump().unwrap();'
+                    // (S('Screen {', '}')
+                        // 'argv: argv,' // 'w: W,' // 'h: H,'
+                        // 'sdl: context,' // 'video: video,'
+                        // 'window: window,' // 'icon: icon,'
+                        // 'events: event_pump,'
+                        )))
         #
         p.main.gameloop = \
             (Fn('game_loop', ['argv: String'],
@@ -1858,11 +1866,11 @@ class Game(Mod):
              // ((S('\'event: loop {', '}')
                   // (S('for event in game.events.poll_iter() {', '}')
 
-                 // 'info!("{:?}", event);'
+                      // 'info!("{:?}", event);'
                       // (S('match event {', '}')
                           // 'sdl2::event::Event::Quit { .. }'
                           // (S('| sdl2::event::Event::KeyDown {')
-                          // 'keycode: Some(sdl2::keyboard::Keycode::Escape),' // '..')
+                              // 'keycode: Some(sdl2::keyboard::Keycode::Escape),' // '..')
                           // '} => break \'event,' // '_ => (),')
                       )))
              )
@@ -2057,8 +2065,8 @@ class Fun(Mod):
         #
         p.py.prim \
             // (Meth('eval', ['env'],
-                pfx='## most primitives evaluates into itself')
-                    // 'return self')
+                     pfx='## most primitives evaluates into itself')
+                // 'return self')
         #
         p.py.prims \
             // (Class('S', [p.py.prim],
@@ -2144,9 +2152,9 @@ class Fun(Mod):
                 // "if self in cycle: return ret + ' _/'"
                 // "else: cycle.append(self)"
                 // (S('for i in self.keys():', pfx='# slot{}s')
-                // "ret += self[i].dump(cycle, depth + 1, f'{i} = ', test)")
+                    // "ret += self[i].dump(cycle, depth + 1, f'{i} = ', test)")
                 // (S('for j, k in enumerate(self):', pfx='# nest[]ed')
-                // "ret += k.dump(cycle, depth + 1, f'{j}: ', test)")
+                    // "ret += k.dump(cycle, depth + 1, f'{j}: ', test)")
                 // '# subtree'
                 // 'return ret')
 
@@ -2462,11 +2470,11 @@ class Ini(Mod):
             'ln -fs ~/metaL.py metaL.py',
             f'mv {p}/* ./ ; mv {p}/.* ./ ',
             'git init',
-            'git checkout --orphan ponymuck',
+            'git checkout --orphan shadow',
         ]: os.system(i)
         # 'git add Makefile README.md',
         # 'git commit -a -m "."',
-        # 'git push -v -u bb ponymuck',
+        # 'git push -v -u bb shadow',
 
     def meta(self, p): pass
 
